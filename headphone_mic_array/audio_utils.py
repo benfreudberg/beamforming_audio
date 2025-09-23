@@ -7,7 +7,7 @@ from scipy.signal import resample_poly
 
 # --- Constants ---
 INTERNAL_SR = 48000
-SPEED_OF_SOUND = 343.0  # m/s
+SPEED_OF_SOUND = 340.0  # m/s
 
 
 # --- Paths ---

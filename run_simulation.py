@@ -3,7 +3,6 @@ from headphone_mic_array.simulator import (
     MicrophoneArraySimulation,
     SoundSource,
     Microphone,
-    Target,
 )
 
 # project_root is where this script lives
@@ -16,6 +15,8 @@ informative_voice_file = audio_dir / "informative.wav"
 sim = MicrophoneArraySimulation()
 sim.add_sound_source(SoundSource(1, 2, 0, descriptive_voice_file))
 sim.add_sound_source(SoundSource(-2, 2, 0, informative_voice_file))
+sim.add_target("descriptive", 1, 2, 0)
+sim.add_target("informative", -2, 2, 0)
 
 # --- Build a 5x5 grid of microphones (x–z plane), 2 cm spacing, centered at (0,0,0) ---
 spacing = 0.02  # meters
@@ -39,21 +40,16 @@ sim.reset_recordings()
 
 # Record with the mic grid → build target → apply to ears
 sim.run_recording()
-target = sim.add_target(1, 2, 0)
+sim.create_target_tracks_DS()
 
+# Export target tracks
+sim.export_target_tracks()
 sim.apply_targets_to_ears()
-sim.export_ears_stereo("target_only.wav")
+sim.export_ears_stereo("targets_applied_to_ears.wav")
 
 # Export center mic recording (if found)
 if center_mic is not None:
-    center_mic.save_recording()
-
-# Export target track
-target.export()
-
-# Add muffled ambient background
-sim.apply_ambient_audio_to_ears(scaling=0.2)
-sim.export_ears_stereo("target_and_muffled_ambient.wav")
+    center_mic.export()
 
 # Visualize setup
 sim.show_scene_3d()
