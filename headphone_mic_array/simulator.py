@@ -6,11 +6,15 @@ from pathlib import Path
 
 from .geometry import Node
 from .audio_utils import (
-    INTERNAL_SR, SPEED_OF_SOUND,
     read_wav_float_mono, resample_to, apply_fractional_delay,
     get_output_dir, save_wav_float32, project_root
 )
 from .plotting import plot_scene
+from .beamformer import (BeamformerConfig, MVDRBeamformer)
+
+# --- Constants ---
+INTERNAL_SR = 48000
+SPEED_OF_SOUND = 340.0  # m/s
 
 
 # ---------- Core Entities ----------
@@ -71,11 +75,11 @@ class Microphone(Node):
             delayed = np.pad(delayed, (0, max_len - len(delayed)))
         self.track += delayed
 
-    def export(self, filename: str = "mic_track.wav") -> None:
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
+    def export(self, suffix: str = "mic_track.wav") -> None:
+        if not isinstance(suffix, str):
+            raise TypeError("suffix must be a string.")
         out_dir = get_output_dir()
-        out_path = out_dir / f"{self.name}_{filename}"
+        out_path = out_dir / f"{self.name}_{suffix}"
         save_wav_float32(out_path, INTERNAL_SR, self.track)
         print(f"Track saved to: {out_path}")
 
@@ -145,13 +149,28 @@ class Target(Node):
 
         self._track = scaled
 
-    def export(self, filename: str = "target_track.wav") -> None:
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
+    def create_track_MVDR(self, mic_entries: List[Microphone]) -> None:
+        if not mic_entries:
+            raise RuntimeError("No microphones provided to Target.create_track_MVDR().")
+        beam_former_config = BeamformerConfig(fs=INTERNAL_SR, window_ms=10, hop_ms=5, speed_of_sound=SPEED_OF_SOUND, ema_alpha=0.95, diag_load=0.0001, update_every_n_frames=5)
+        bf = MVDRBeamformer(mic_entries, target_point=self, config=beam_former_config)
+        tracks = [mic.track for mic in mic_entries]
+        max_len = max(len(track) for track in tracks)
+        padded_tracks = [
+            np.pad(track, (0, max_len - len(track)), mode="constant")
+            for track in tracks
+        ]
+        x = np.vstack(padded_tracks)
+        self._track = bf.process_block(x)
+
+
+    def export(self, suffix: str = "") -> None:
+        if not isinstance(suffix, str):
+            raise TypeError("suffix must be a string.")
         if self._track is None or len(self._track) == 0:
             raise RuntimeError("No track available. Call create_track_DS() first.")
         out_dir = get_output_dir()
-        out_path = out_dir / f"{self.name}_{filename}"
+        out_path = out_dir / f"{self.name}_target_{suffix}.wav"
         save_wav_float32(out_path, INTERNAL_SR, self._track)
         print(f"Target track exported to: {out_path}")
 
@@ -254,11 +273,17 @@ class MicrophoneArraySimulation:
         for target in self._targets:
             target.create_track_DS(self._microphones)
 
-    def export_target_tracks(self):
+    def create_target_tracks_MVDR(self):
         if not self._targets:
             raise RuntimeError("No targets have been added to the simulation.")
         for target in self._targets:
-            target.export()
+            target.create_track_MVDR(self._microphones)
+
+    def export_target_tracks(self, suffix: str = ""):
+        if not self._targets:
+            raise RuntimeError("No targets have been added to the simulation.")
+        for target in self._targets:
+            target.export(suffix)
 
     def apply_targets_to_ears(self) -> None:
         """

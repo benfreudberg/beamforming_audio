@@ -1,5 +1,6 @@
 from __future__ import annotations
 import math
+import numpy as np
 
 class Node:
     """Base class for anything with a 3D position (mics, ears, sources, targets)."""
@@ -13,6 +14,9 @@ class Node:
         dy = self.y - other.y
         dz = self.z - other.z
         return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    def as_array(self) -> np.ndarray:
+        return np.array([self.x, self.y, self.z], dtype=float)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z})"
