@@ -60,15 +60,33 @@ def resample_to(data: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
 
 
 def apply_fractional_delay(data: np.ndarray, delay_samples: float) -> np.ndarray:
-    """Apply a fractional delay (simple version, crude approx for now)."""
-    if delay_samples <= 0:
-        return data
-    n = int(delay_samples)
-    frac = delay_samples - n
-    delayed = np.concatenate([np.zeros(n), data])
-    if frac > 1e-6:
-        delayed = np.roll(delayed, int(frac * 10))  # crude approximation
-    return delayed.astype(np.float32)
+    """
+    Apply a fractional delay using simple linear interpolation.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Input 1D signal.
+    delay_samples : float
+        Desired delay in samples (can be fractional, >= 0).
+
+    Returns
+    -------
+    np.ndarray
+        Delayed signal.
+    """
+    if delay_samples < 1e-9:
+        return data.copy()
+
+    integer_delay = int(np.floor(delay_samples))
+    fractional_delay = delay_samples - integer_delay
+    len_data = len(data)
+    n = np.arange(len_data)
+    y = np.zeros(len_data + integer_delay + 1)
+    data = np.append(data, data[-1])
+    y[integer_delay:len_data + integer_delay] = (1 - fractional_delay) * data[n] + fractional_delay * data[n + 1]
+
+    return y.astype(np.float32)
 
 
 def save_wav_float32(path: str | Path, sr: int, data: np.ndarray) -> None:

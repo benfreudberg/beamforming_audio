@@ -152,7 +152,7 @@ class Target(Node):
     def create_track_MVDR(self, mic_entries: List[Microphone]) -> None:
         if not mic_entries:
             raise RuntimeError("No microphones provided to Target.create_track_MVDR().")
-        beam_former_config = BeamformerConfig(fs=INTERNAL_SR, window_ms=10, hop_ms=5, speed_of_sound=SPEED_OF_SOUND, ema_alpha=0.95, diag_load=0.0001, update_every_n_frames=5)
+        beam_former_config = BeamformerConfig(fs=INTERNAL_SR, hop_ms=5, speed_of_sound=SPEED_OF_SOUND, ema_alpha=0.95, diag_load=0.000001, update_every_n_frames=5)
         bf = MVDRBeamformer(mic_entries, target_point=self, config=beam_former_config)
         tracks = [mic.track for mic in mic_entries]
         max_len = max(len(track) for track in tracks)

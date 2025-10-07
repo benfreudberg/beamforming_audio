@@ -12,7 +12,6 @@ from .geometry import Node
 @dataclass
 class BeamformerConfig:
     fs: int = 48000
-    window_ms: float = 20.0
     hop_ms: float = 10.0
     nfft: Optional[int] = None  # if None, next pow2 ≥ Nw
     speed_of_sound: float = 343.0
@@ -39,7 +38,7 @@ class MVDRBeamformer:
     ) -> None:
         self.cfg = config
         self.fs = config.fs
-        self.Nw = int(round(self.fs * self.cfg.window_ms / 1000.0))
+        self.Nw = int(round(self.fs * self.cfg.hop_ms * 2 / 1000.0))
         self.Nh = int(round(self.fs * self.cfg.hop_ms / 1000.0))
         if self.Nh <= 0 or self.Nw <= 0:
             raise ValueError("window_ms and hop_ms must yield positive sample counts.")
@@ -64,9 +63,6 @@ class MVDRBeamformer:
 
         # Analysis/synthesis windows (sqrt-Hann for COLA at 50% overlap)
         self.win = np.sqrt(np.hanning(self.Nw).astype(float))
-        # Pad window to NFFT length for iFFT OLA placement
-        self.win_pad = np.zeros(self.nfft, dtype=float)
-        self.win_pad[: self.Nw] = self.win
 
         # Frequency grid (rfft)
         self.freqs = np.fft.rfftfreq(self.nfft, d=1.0 / self.fs)  # (F,)
