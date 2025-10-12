@@ -1,6 +1,7 @@
 import sys, os
 from pathlib import Path
 import numpy as np
+import matplotlib.pyplot as plt
 
 # If you need this path tweak, keep it. Otherwise prefer running with: python -m some_pkg.my_script
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -44,9 +45,10 @@ pos = 0
 n_samples = audio_resampled.shape[0]
 inbuf_fill = 0
 emitted = []
+frame_count = 0
 
 def process_one_frame() -> np.ndarray:
-    global olabuf
+    global olabuf, frame_count
 
     x_win = (inbuf * win).astype(float)
     x_win_pad = np.zeros(nfft, dtype=float)
@@ -60,6 +62,14 @@ def process_one_frame() -> np.ndarray:
 
     olabuf = np.roll(olabuf, -Nh)
     olabuf[-Nh:] = 0.0
+
+    # if frame_count == 500:
+    #     plt.figure()
+    #     plt.plot(x_win)
+    #     plt.figure()
+    #     plt.plot(y_out)
+
+    frame_count += 1
 
     return y_out
 
@@ -78,5 +88,15 @@ while pos < n_samples:
         inbuf_fill -= Nh
 
 track = np.concatenate(emitted).astype(np.float32)
+
+print(audio_resampled.shape[0])
+print(track.shape[0])
+
+plt.figure()
+plt.plot(audio_resampled)
+plt.plot(track)
+plt.figure()
+plt.plot(track[Nh:] - audio_resampled[:track[Nh:].shape[0]]) # there is a delay of ~Nh samples
+plt.show()
 
 save_wav_float32("test_track.wav", INTERNAL_SR, track)

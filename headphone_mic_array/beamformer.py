@@ -85,6 +85,7 @@ class MVDRBeamformer:
         azel = target_direction if target_direction is not None else (0.0, 0.0)
         self.set_target(az_deg=azel[0], el_deg=azel[1], point=target_point)
 
+
     # ----------------------------- Target control ---------------------------- #
 
     def set_target(
@@ -137,7 +138,7 @@ class MVDRBeamformer:
             tau = (dists - dists.mean()) / c
         else:
             u = self._target_u
-            tau = (self.mic_pos @ u) / c
+            tau = -(self.mic_pos @ u) / c
             tau -= tau.mean()
         return tau.astype(float)
 
@@ -146,7 +147,7 @@ class MVDRBeamformer:
         tau = self._compute_delays()
         phase = -2j * np.pi * self.freqs[:, None] * tau[None, :]
         d = np.exp(phase)
-        d /= np.linalg.norm(d, axis=1, keepdims=True) + 1e-12
+        # d /= np.linalg.norm(d, axis=1, keepdims=True) + 1e-12
         self._d = d.astype(np.complex128)
         I = np.eye(self.M, dtype=np.complex128)
         self._B = np.empty((self.F, self.M, self.M), dtype=np.complex128)
