@@ -8,6 +8,8 @@ import numpy as np
 # Use shared geometry primitives
 from .geometry import Node
 
+import matplotlib.pyplot as plt
+
 
 @dataclass
 class BeamformerConfig:
@@ -36,6 +38,7 @@ class MVDRBeamformer:
         target_point: Optional[Node] = None,
         config: BeamformerConfig = BeamformerConfig(),
     ) -> None:
+        np.set_printoptions(linewidth=350)
         self.cfg = config
         self.fs = config.fs
         self.Nw = int(round(self.fs * self.cfg.hop_ms * 2 / 1000.0))
@@ -59,6 +62,7 @@ class MVDRBeamformer:
             )
 
         self.mic_pos = np.stack([m.as_array() for m in mic_positions], axis=0)  # (M,3)
+        self.mic_pos1 = mic_positions
         self.M = self.mic_pos.shape[0]
 
         # Analysis/synthesis windows (sqrt-Hann for COLA at 50% overlap)
@@ -84,6 +88,16 @@ class MVDRBeamformer:
         self._near_field = False
         azel = target_direction if target_direction is not None else (0.0, 0.0)
         self.set_target(az_deg=azel[0], el_deg=azel[1], point=target_point)
+
+        # Update only when target is low power
+        self._td_ema = np.zeros(self.F, dtype=float)   # smoothed target ratio per bin
+        self._gate_state = np.zeros(self.F, dtype=bool) # True => allowed to update at this bin
+        # Gate params (tweak if needed)
+        self._gate_alpha = 0.7     # time smoothing of ratio (higher = smoother)
+        self._gate_on  = 0.12      # allow updates when r_ema < on
+        self._gate_off = 0.18      # stop updates when r_ema > off
+        self._r_accum = []
+        self._p_accum = []
 
 
     # ----------------------------- Target control ---------------------------- #
@@ -133,27 +147,87 @@ class MVDRBeamformer:
         """Return delays tau[m] in seconds for each mic relative to reference."""
         c = self.cfg.speed_of_sound
         if self._near_field:
-            p = self._target_point.as_array()
-            dists = np.linalg.norm(self.mic_pos - p[None, :], axis=1)  # (M,)
-            tau = (dists - dists.mean()) / c
+            # p = self._target_point.as_array()
+            # dists = np.linalg.norm(self.mic_pos - p[None, :], axis=1)  # (M,)
+            dists = np.zeros(self.M)
+            for i, mic in enumerate(self.mic_pos1):
+                dists[i] = mic.distance_to(self._target_point)
+            tau = (dists - dists.min()) / c
         else:
             u = self._target_u
             tau = -(self.mic_pos @ u) / c
-            tau -= tau.mean()
+            tau -= tau.min()
         return tau.astype(float)
 
     def _update_steering(self) -> None:
         """Compute frequency-dependent steering vectors and projection matrices."""
         tau = self._compute_delays()
         phase = -2j * np.pi * self.freqs[:, None] * tau[None, :]
-        d = np.exp(phase)
-        # d /= np.linalg.norm(d, axis=1, keepdims=True) + 1e-12
-        self._d = d.astype(np.complex128)
+        ref_mic_index = self.M//2 #center mic
+        d_raw = np.exp(phase)
+        d_blk = d_raw / np.linalg.norm(d_raw, axis=1, keepdims=True) + 1e-12
+        d_mvdr = d_raw / (d_raw[:, [ref_mic_index]] + 1e-12)
+        self._d_blk = d_blk.astype(np.complex128)
+        self._d_mvdr = d_mvdr.astype(np.complex128)
         I = np.eye(self.M, dtype=np.complex128)
         self._B = np.empty((self.F, self.M, self.M), dtype=np.complex128)
         for k in range(self.F):
-            dk = self._d[k][:, None]
+            dk = self._d_blk[k][:, None]
             self._B[k] = I - dk @ dk.conj().T
+
+        # self.plot_beam_direct(k_idx=self.F//3, c=self.cfg.speed_of_sound)
+        # self.plot_beam_direct(k_idx=self.F//8, c=self.cfg.speed_of_sound)
+        # self.plot_beam_direct(k_idx=self.F//32, c=self.cfg.speed_of_sound)
+        # self.plot_beam_direct(k_idx=self.F//64, c=self.cfg.speed_of_sound)
+
+    def plot_beam_direct(self, k_idx, w=None, theta_deg=np.linspace(-90, 90, 721), c=343):
+        """
+        Plot beampattern for arbitrary mic geometry via direct array-factor evaluation.
+        - theta is measured from broadside (z-axis), in the x–z plane.
+        """
+        # frequency / wavenumber
+        f = float(self.freqs[k_idx])
+        k = 2*np.pi*f/c
+
+        # weights (default to steering vector at this frequency)
+        if w is None:
+            w = self._d_mvdr[k_idx]                 # shape (M,)
+        w = np.asarray(w).reshape(-1)
+
+        # mic positions (M,3)
+        R = np.asarray(self.mic_pos)           # columns: x, y, z
+        if R.shape[1] < 3:
+            # if you store 2D (x,z), promote to 3D
+            R = np.column_stack([R[:,0], np.zeros(len(R)), R[:,1]])
+
+        # scan unit vectors u(theta) = [sinθ, 0, cosθ]
+        theta = np.deg2rad(theta_deg)
+        u = np.stack([np.sin(theta), np.zeros_like(theta), np.cos(theta)], axis=1)  # (T,3)
+
+        # steering matrix A(t, m) = exp(-j k r_m · u_t)
+        A = np.exp(-1j * k * (u @ R.T))        # shape (T, M)
+
+        # beampattern B(θ) = |w^H a(θ)| -> A @ conj(w)
+        B = np.abs(A @ np.conj(w))
+        B /= B.max() + 1e-15
+        B_dB = 20*np.log10(np.maximum(B, 1e-6))
+
+        # find peak
+        theta_max = theta[np.argmax(B_dB)]
+
+        # polar plot
+        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        ax.plot(theta, B_dB)
+        ax.plot([theta_max], [0.0], 'ro')
+        ax.text(theta_max - 0.1, -4, f"{np.degrees(theta_max):.2f}°")
+
+        ax.set_theta_zero_location('N')        # 0° up (broadside)
+        ax.set_theta_direction(1)             # increase ccw
+        ax.set_thetamin(-90); ax.set_thetamax(90)
+        ax.set_ylim([-30, 1])
+        ax.set_rlabel_position(55)
+        ax.set_title(f"Direct Beampattern @ {int(np.round(f))} Hz")
+        plt.show()
 
     # ------------------------------- Processing ------------------------------ #
 
@@ -178,6 +252,9 @@ class MVDRBeamformer:
                 y_hop = self._process_one_frame()
                 emitted.append(y_hop)
                 self._inbuf_fill -= self.Nh
+        # plt.plot(self._r_accum)
+        # plt.plot(self._p_accum)
+        # plt.show()
         return np.concatenate(emitted, axis=0) if emitted else np.empty(0, dtype=float)
 
     def _process_one_frame(self) -> np.ndarray:
@@ -205,26 +282,60 @@ class MVDRBeamformer:
         """Window last frame and compute one-sided rFFT for each mic."""
         x_win = (self._inbuf * self.win[None, :]).astype(float)  # (M, Nw)
         X = np.fft.rfft(x_win, n=self.nfft, axis=1)  # (M, F)
+        # frequency filtering
+        X[:, 0] = 0
+        # X[:, self.F//3:] = 0
         return X.T.copy()  # (F, M)
 
     def _mvdr_step(self, k: int, xk: np.ndarray, update_weights: bool) -> np.complex128:
         """One MVDR update/application at frequency bin k."""
-        if update_weights:
-            Bk = self._B[k]
-            x_proj = Bk @ xk
-            Rvv_k = self.cfg.ema_alpha * self._Rvv[k] + (1 - self.cfg.ema_alpha) * (
-                np.outer(x_proj, x_proj.conj())
-            )
-            load = self.cfg.diag_load * (np.trace(Rvv_k).real / self.M + 1e-12)
-            Rvv_k = Rvv_k + load * np.eye(self.M, dtype=np.complex128)
-            invR = np.linalg.pinv(Rvv_k)
+        # --- NEW: compute smoothed target ratio and hysteresis-gated update flag ---
+        du = self._d_blk[k]
+        tpow = float(np.abs(np.vdot(du, xk))**2)                   # |d^H x|^2
+        upow = float((xk.conj() @ xk).real + 1e-12)                # x^H x
+        r = tpow / upow                                            # instantaneous ratio
+        self._r_accum.append(r)
+
+        x_proj = self._B[k] @ xk
+        p_perp = (x_proj.conj() @ x_proj).real / upow
+        interferer_present = p_perp > 0.15  # tune 0.1–0.3
+        self._p_accum.append(p_perp)
+
+        a = self._gate_alpha
+        self._td_ema[k] = a * self._td_ema[k] + (1.0 - a) * r      # EMA
+
+        # hysteresis: prevents chattering
+        if self._gate_state[k]:
+            # currently allowed; turn OFF if ratio rises above off-threshold
+            self._gate_state[k] = self._td_ema[k] > self._gate_off
+        else:
+            # currently blocked; turn ON if ratio falls below on-threshold
+            self._gate_state[k] = self._td_ema[k] < self._gate_on
+
+        # allow_update = update_weights and self._gate_state[k] and interferer_present
+        allow_update = self._gate_state[k] and interferer_present
+
+        if allow_update:
+            Rvv_k = self.cfg.ema_alpha * self._Rvv[k] + (1 - self.cfg.ema_alpha) * (np.outer(xk, xk.conj()))
+            Rvv_k = 0.5*(Rvv_k + Rvv_k.conj().T)
+            lam = self.cfg.diag_load * (np.trace(Rvv_k).real / self.M + 1e-12)
+            Rvv_k += lam * np.eye(self.M, dtype=np.complex128)
             self._Rvv[k] = Rvv_k
-            self._invRvv[k] = invR
+            self._invRvv[k] = np.linalg.pinv(Rvv_k)
+
+        dk = self._d_mvdr[k]  # (ref-mic normalized steering for constraint)
         invR = self._invRvv[k]
-        dk = self._d[k]
         num = invR @ dk
         den = dk.conj().T @ num
         wk = num / (den + 1e-12)
+        wk = wk / (np.vdot(wk, dk) + 1e-12)  # keep w^H d = 1 exactly
+
+        # if self._frame_idx in [10, 100, 300, 1000, 2000]:
+        if self._frame_idx == 2000:
+            if k in [1, 2, 5, 10, 35, 60]:
+            # if k == 35:
+                self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
+
         return wk.conj().T @ xk
 
     def _synthesis(self, Y: np.ndarray) -> np.ndarray:

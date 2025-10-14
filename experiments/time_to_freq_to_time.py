@@ -20,7 +20,7 @@ descriptive_voice_file = audio_dir / "descriptive.wav"
 sr_in, audio_raw = read_wav_float_mono(descriptive_voice_file)
 audio_resampled = resample_to(audio_raw, sr_in, INTERNAL_SR)
 
-hop_ms = 10
+hop_ms = 5
 window_ms = hop_ms * 2
 Nw = int(round(INTERNAL_SR * window_ms / 1000.0))
 Nh = int(round(INTERNAL_SR * hop_ms / 1000.0))
@@ -36,6 +36,10 @@ win_pad = np.zeros(nfft, dtype=float)
 win_pad[:Nw] = win
 
 freqs = np.fft.rfftfreq(nfft, d=1.0 / INTERNAL_SR)
+target_freq = 500
+f_index = np.argmin(np.abs(freqs - target_freq))
+print(f_index)
+print(freqs[f_index])
 F = freqs.shape[0]
 
 inbuf = np.zeros(Nw, dtype=float)
@@ -55,6 +59,9 @@ def process_one_frame() -> np.ndarray:
     x_win_pad[:Nw] = x_win
 
     x = np.fft.rfft(x_win, n=nfft)
+    x[0] = 0
+    # x[F//3:] = 0
+    x[f_index:] = 0
     y = np.fft.irfft(x, n=nfft).real
 
     olabuf += (y[: Nw] * win).astype(float)
@@ -63,11 +70,9 @@ def process_one_frame() -> np.ndarray:
     olabuf = np.roll(olabuf, -Nh)
     olabuf[-Nh:] = 0.0
 
-    # if frame_count == 500:
-    #     plt.figure()
-    #     plt.plot(x_win)
-    #     plt.figure()
-    #     plt.plot(y_out)
+    if frame_count == 500:
+        plt.figure()
+        plt.plot(x)
 
     frame_count += 1
 
@@ -89,14 +94,36 @@ while pos < n_samples:
 
 track = np.concatenate(emitted).astype(np.float32)
 
-print(audio_resampled.shape[0])
-print(track.shape[0])
+# print(audio_resampled.shape[0])
+# print(track.shape[0])
 
-plt.figure()
-plt.plot(audio_resampled)
-plt.plot(track)
-plt.figure()
-plt.plot(track[Nh:] - audio_resampled[:track[Nh:].shape[0]]) # there is a delay of ~Nh samples
+# plt.figure()
+# plt.plot(audio_resampled)
+# plt.plot(track)
+# plt.figure()
+# plt.plot(track[Nh:] - audio_resampled[:track[Nh:].shape[0]]) # there is a delay of ~Nh samples
+
+# full signal fft
+full_fft = np.fft.rfft(audio_resampled)
+power_dB = 10 * np.log10(np.abs(full_fft)**2 + 1e-12)
+freqs = np.fft.rfftfreq(len(audio_resampled), d=1.0 / INTERNAL_SR)
+plt.figure(figsize=(8, 4))
+plt.plot(freqs, power_dB)
+plt.title("FFT Power Spectrum of audio_resampled")
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("Power (dB)")
+plt.grid(True)
+plt.tight_layout()
+full_track_fft = np.fft.rfft(track)
+track_power_dB = 10 * np.log10(np.abs(full_track_fft)**2 + 1e-12)
+track_freqs = np.fft.rfftfreq(len(track), d=1.0 / INTERNAL_SR)
+plt.plot(track_freqs, track_power_dB)
+plt.title("FFT Power Spectrum of track")
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("Power (dB)")
+plt.grid(True)
+plt.tight_layout()
+
 plt.show()
 
 save_wav_float32("test_track.wav", INTERNAL_SR, track)
