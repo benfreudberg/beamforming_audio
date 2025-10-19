@@ -6,8 +6,7 @@ from headphone_mic_array.simulator import (
     Microphone,
 )
 
-# todo move to another file
-
+# todo move these functions to another file
 def _x_at_K(A, s0, r, K, include_center: bool):
     """
     Half-aperture position of the K-th positive-side mic for given s0 (center spacing),
@@ -165,12 +164,20 @@ audio_dir = base_dir / "input_audio_files"
 
 descriptive_voice_file = audio_dir / "descriptive.wav"
 informative_voice_file = audio_dir / "informative.wav"
+dialog_voice_a = audio_dir / "dialog_voice_a.wav"
+dialog_voice_b = audio_dir / "dialog_voice_b.wav"
+food_hall_L = audio_dir / "food_hall_L.wav"
+food_hall_R = audio_dir / "food_hall_R.wav"
 
 sim = MicrophoneArraySimulation()
-sim.add_sound_source(SoundSource(10, 20, 0, descriptive_voice_file))
-sim.add_sound_source(SoundSource(0, 20, 0, informative_voice_file))
-sim.add_target("descriptive", 10, 20, 0)
-sim.add_target("informative", 0, 20, 0)
+sim.add_sound_source(SoundSource(8, 3, 0, descriptive_voice_file))
+sim.add_sound_source(SoundSource(-5, 20, 0, informative_voice_file))
+sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a))
+sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b))
+sim.add_sound_source(SoundSource(10, -7, 0, food_hall_L))
+sim.add_sound_source(SoundSource(-4, -5, 0, food_hall_R))
+sim.add_target("dialog_voice_a", 1.5, 2, 0)
+sim.add_target("dialog_voice_b", -1.5, 2, 0)
 
 
 total_length = 2.0      # meters
@@ -207,8 +214,8 @@ sim.create_target_tracks_DS()
 sim.export_target_tracks("DS")
 sim.create_target_tracks_MVDR()
 sim.export_target_tracks("MVDR")
-# sim.apply_targets_to_ears()
-# sim.export_ears_stereo("targets_applied_to_ears.wav")
+sim.apply_targets_to_ears()
+sim.export_ears_stereo("targets_applied_to_ears.wav")
 
 # Export center mic recording (if found)
 if center_mic is not None:
@@ -216,83 +223,3 @@ if center_mic is not None:
 
 # Visualize setup
 sim.show_scene_3d()
-
-
-
-
-
-
-
-def geometric_linear_positions(total_length: float,
-                               center_spacing: float,
-                               growth: float,
-                               include_center: bool = False) -> np.ndarray:
-    """
-    Return symmetric x-positions (meters) for a geometrically spaced linear array.
-    - total_length: full aperture in meters (distance from leftmost to rightmost mic).
-    - center_spacing: spacing between the two innermost mics (meters).
-    - growth: geometric ratio (>0). =1 gives uniform spacing; >1 grows outward.
-    - include_center: if True, include a mic at x=0 as well.
-
-    Spacings outward from the center pair are: s0=center_spacing (between ±1),
-    then s1=s0*growth (between +1↔+2 and -1↔-2), then s2=s1*growth, etc.
-    The last spacing is adjusted (only that one) so the outermost mic hits ±total_length/2.
-    """
-    A = float(total_length) / 2.0  # half-aperture
-    s0 = float(center_spacing)
-    r  = float(growth)
-
-    if A <= 0 or s0 <= 0 or r <= 0:
-        raise ValueError("total_length, center_spacing, and growth must be positive.")
-    if s0 > 2*A:
-        raise ValueError("center_spacing too large for the given total_length.")
-
-    # Handle r == 1 (uniform outward spacing)
-    pos_plus = []
-    if np.isclose(r, 1.0):
-        x = s0 / 2.0
-        if x > A:
-            raise ValueError("center_spacing too large for the given total_length.")
-        # keep adding s0 until we would exceed A
-        while x + s0 <= A + 1e-12:
-            pos_plus.append(x)
-            x += s0
-        # adjust last step to hit A exactly (only if we don't already land on A)
-        if not np.isclose(x, A):
-            pos_plus.append(A)
-        else:
-            pos_plus.append(x)
-    else:
-        # Geometrically increasing gaps: x_k = s0/2 + s0 * sum_{i=1}^{k-1} r^i
-        # Keep adding until next would exceed A, then adjust final to A.
-        k = 1
-        # first candidate
-        xk = s0 / 2.0
-        if xk > A + 1e-12:
-            raise ValueError("center_spacing too large for the given total_length.")
-
-        # Add as many as fit strictly within A
-        while True:
-            if xk <= A + 1e-12:
-                pos_plus.append(xk)
-            # propose next x_{k+1}
-            k += 1
-            # sum_{i=1}^{k-1} r^i = r * (1 - r^{k-1}) / (1 - r)
-            geom_sum = r * (1.0 - r**(k-1)) / (1.0 - r)
-            x_next = s0 / 2.0 + s0 * geom_sum
-            if x_next > A + 1e-12:
-                break
-            xk = x_next
-
-        # If we didn't already land on A, append A as the last (adjusting only the last spacing)
-        if not np.isclose(pos_plus[-1], A, atol=1e-12):
-            pos_plus.append(A)
-
-    # Build symmetric array: (optional center), then negative side, then positive side
-    pos_plus = np.array(sorted(set(np.round(pos_plus, 15))))  # unique & stable
-    neg = -pos_plus[::-1]
-    if include_center:
-        xs = np.concatenate([neg, np.array([0.0]), pos_plus])
-    else:
-        xs = np.concatenate([neg, pos_plus])
-    return xs

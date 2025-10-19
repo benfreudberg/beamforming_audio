@@ -331,10 +331,10 @@ class MVDRBeamformer:
         wk = wk / (np.vdot(wk, dk) + 1e-12)  # keep w^H d = 1 exactly
 
         # if self._frame_idx in [10, 100, 300, 1000, 2000]:
-        if self._frame_idx == 2000:
-            if k in [1, 2, 5, 10, 35, 60]:
-            # if k == 35:
-                self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
+        # if self._frame_idx == 2000:
+        #     if k in [1, 2, 5, 10, 35, 60]:
+        #     # if k == 35:
+        #         self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
 
         return wk.conj().T @ xk
 
