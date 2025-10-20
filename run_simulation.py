@@ -5,6 +5,7 @@ from headphone_mic_array.simulator import (
     SoundSource,
     Microphone,
 )
+from headphone_mic_array.geometry import Node
 
 # todo move these functions to another file
 def _x_at_K(A, s0, r, K, include_center: bool):
@@ -170,8 +171,8 @@ food_hall_L = audio_dir / "food_hall_L.wav"
 food_hall_R = audio_dir / "food_hall_R.wav"
 
 sim = MicrophoneArraySimulation()
-sim.add_sound_source(SoundSource(8, 3, 0, descriptive_voice_file))
-sim.add_sound_source(SoundSource(-5, 20, 0, informative_voice_file))
+sim.add_sound_source(SoundSource(4, 1, 0, descriptive_voice_file))
+sim.add_sound_source(SoundSource(0, 2, 0, informative_voice_file))
 sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a))
 sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b))
 sim.add_sound_source(SoundSource(10, -7, 0, food_hall_L))
@@ -188,17 +189,16 @@ include_center = False   # set True to place a mic at x=0
 xs, r_used = geometric_linear_positions_coerced_growth(
     total_length, center_spacing, r_target, include_center
 )
-print(r_used)
-print(xs)
 
 print(f"Using growth factor r = {r_used:.6f} with {len(xs)} microphones.")
 center_mic = None
+origin = Node(0, 0, 0)
 for x in xs:
     z = 0.0
-    name = f"mic_x{int(round(x*100)):02d}cm_z{int(round(z*100)):02d}cm"
+    name = f"mic_x{int(round(x*100)):02d}cm"
     mic = Microphone(name, float(x), 0.0, float(z))
     sim.add_microphone(mic)
-    if np.isclose(x, 0.0) and np.isclose(z, 0.0):
+    if center_mic is None or center_mic.distance_to(origin) > mic.distance_to(origin):
         center_mic = mic
 
 # Ambient (all sources → ears)

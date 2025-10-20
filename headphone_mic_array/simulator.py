@@ -1,6 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Literal
 import numpy as np
 from pathlib import Path
 
@@ -221,12 +220,9 @@ class MicrophoneArraySimulation:
         if not self._sources:
             raise RuntimeError("No sound sources have been added to the simulation.")
 
-        print(f"Applying ambient audio to ears...")
         for ear in (self.left_ear, self.right_ear):
-            print(f"Processing ear '{ear.name}'...")
             for src in self._sources:
                 ear.listen_to(src)
-        print("Ambient audio application complete (ears).")
 
     def reset_recordings(self, target: Literal["ears", "mics", "all"] = "all") -> None:
         """Reset stored audio data for 'ears', 'mics', or 'all'."""
@@ -235,11 +231,9 @@ class MicrophoneArraySimulation:
         if target in ("ears", "all"):
             self.left_ear.track = np.zeros(0, dtype=np.float32)
             self.right_ear.track = np.zeros(0, dtype=np.float32)
-            print("Reset: cleared ear recordings.")
         if target in ("mics", "all"):
             for mic in self._microphones:
                 mic.track = np.zeros(0, dtype=np.float32)
-            print("Reset: cleared microphone recordings.")
 
     def export_ears_stereo(self, filename: str = "ears_stereo.wav") -> None:
         """Export the two internal ears as a stereo WAV (float32, 48 kHz) to output/."""
@@ -265,7 +259,7 @@ class MicrophoneArraySimulation:
         """Create a Target at (x, y, z), build its track, store and return it."""
         t = Target(name, x, y, z)
         self._targets.append(t)
-        print(f"Target created at ({x}, {y}, {z}) and track generated.")
+        print(f"Target created at ({x}, {y}, {z})")
         return t
     
     def create_target_tracks_DS(self):
