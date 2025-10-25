@@ -265,7 +265,10 @@ class MVDRBeamformer:
         Y = np.empty(self.F, dtype=np.complex128)
         update_weights = (self._frame_idx % self.cfg.update_every_n_frames) == 0
         for k in range(self.F):
-            Y[k] = self._mvdr_step(k, X[k], update_weights)
+            if k < 3:
+                Y[k] = 0.0
+            else:
+                Y[k] = self._mvdr_step(k, X[k], update_weights)
         # ---- Synthesis (iFFT + window) ----
         frame_td = self._synthesis(Y)
         # ---- OLA (fixed-size buffer) ----

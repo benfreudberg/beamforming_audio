@@ -175,14 +175,14 @@ sim.add_sound_source(SoundSource(4, 1, 0, descriptive_voice_file))
 sim.add_sound_source(SoundSource(0, 2, 0, informative_voice_file))
 sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a))
 sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b))
-sim.add_sound_source(SoundSource(10, -7, 0, food_hall_L))
-sim.add_sound_source(SoundSource(-4, -5, 0, food_hall_R))
+sim.add_sound_source(SoundSource(-4, -5, 0, food_hall_L))
+sim.add_sound_source(SoundSource(4, -5, 0, food_hall_R))
 sim.add_target("dialog_voice_a", 1.5, 2, 0)
 sim.add_target("dialog_voice_b", -1.5, 2, 0)
 
 
 total_length = 2.0      # meters
-center_spacing = 0.02    # meters between the two innermost mics
+center_spacing = 0.018    # meters between the two innermost mics
 r_target = 1.3            # outward spacing ratio (>1 grows, 1.0 = uniform)
 include_center = False   # set True to place a mic at x=0
 
