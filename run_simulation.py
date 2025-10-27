@@ -159,6 +159,48 @@ def geometric_linear_positions_coerced_growth(total_length: float,
     xs.sort()
     return xs, float(r_solved)
 
+def circular_array_xy(
+    diameter: float,
+    num_elements: int,
+    first_angle: float = 0.0,
+    degrees: bool = False,
+) -> np.ndarray:
+    """
+    Return x–y coordinates for mics placed uniformly on a circle.
+
+    Parameters
+    ----------
+    diameter : float
+        Circle diameter in meters.
+    num_elements : int
+        Number of microphones (>= 1).
+    first_angle : float, optional
+        Angular offset for the first element (default 0).
+        Measured from +x axis, counterclockwise.
+    degrees : bool, optional
+        If True, 'first_angle' is in degrees; otherwise radians.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (num_elements, 2) with columns [x, y] (meters).
+    """
+    if num_elements < 1:
+        raise ValueError("num_elements must be >= 1")
+    if diameter < 0:
+        raise ValueError("diameter must be non-negative")
+
+    r = diameter * 0.5
+    theta0 = np.deg2rad(first_angle) if degrees else first_angle
+    step = 2.0 * np.pi / max(1, num_elements)  # ok for num_elements==1
+
+    k = np.arange(num_elements, dtype=float)
+    theta = theta0 + k * step
+
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
+    return np.column_stack([x, y])
+
 # project_root is where this script lives
 base_dir = Path(__file__).resolve().parent
 audio_dir = base_dir / "input_audio_files"
@@ -180,26 +222,51 @@ sim.add_sound_source(SoundSource(4, -5, 0, food_hall_R))
 sim.add_target("dialog_voice_a", 1.5, 2, 0)
 sim.add_target("dialog_voice_b", -1.5, 2, 0)
 
+circular = True
+if not circular:
+    total_length = .24      # meters
+    center_spacing = 0.018    # meters between the two innermost mics
+    r_target = 1.3            # outward spacing ratio (>1 grows, 1.0 = uniform)
+    include_center = False   # set True to place a mic at x=0
 
-total_length = 2.0      # meters
-center_spacing = 0.018    # meters between the two innermost mics
-r_target = 1.3            # outward spacing ratio (>1 grows, 1.0 = uniform)
-include_center = False   # set True to place a mic at x=0
+    xs, r_used = geometric_linear_positions_coerced_growth(
+        total_length, center_spacing, r_target, include_center
+    )
 
-xs, r_used = geometric_linear_positions_coerced_growth(
-    total_length, center_spacing, r_target, include_center
-)
+    print(f"Using growth factor r = {r_used:.6f} with {len(xs)} microphones.")
+    center_mic = None
+    origin = Node(0, 0, 0)
+    for x in xs:
+        z = 0.0
+        name = f"mic_x{int(round(x*100)):02d}cm"
+        mic = Microphone(name, float(x), 0.0, float(z))
+        sim.add_microphone(mic)
+        if center_mic is None or center_mic.distance_to(origin) > mic.distance_to(origin):
+            center_mic = mic
+else:
+    xy_inner = circular_array_xy(diameter=0.06, num_elements=8, first_angle=2*np.pi/16)
+    xy_mid = circular_array_xy(diameter=0.14, num_elements=6, first_angle=0)
+    xy_outer = circular_array_xy(diameter=0.3, num_elements=6, first_angle=-2*np.pi/18)
+    xy_outer2 = circular_array_xy(diameter=0.45, num_elements=6, first_angle=2*np.pi/18)
 
-print(f"Using growth factor r = {r_used:.6f} with {len(xs)} microphones.")
-center_mic = None
-origin = Node(0, 0, 0)
-for x in xs:
-    z = 0.0
-    name = f"mic_x{int(round(x*100)):02d}cm"
-    mic = Microphone(name, float(x), 0.0, float(z))
-    sim.add_microphone(mic)
-    if center_mic is None or center_mic.distance_to(origin) > mic.distance_to(origin):
-        center_mic = mic
+    for i, (x, y) in enumerate(xy_inner):
+        name = f"mic_ring_{i:02d}"
+        mic = Microphone(name, float(x), float(y), 0.0)
+        sim.add_microphone(mic)
+    for i, (x, y) in enumerate(xy_mid):
+        name = f"mic_ring_{i:02d}"
+        mic = Microphone(name, float(x), float(y), 0.0)
+        sim.add_microphone(mic)
+    for i, (x, y) in enumerate(xy_outer):
+        name = f"mic_ring_{i:02d}"
+        mic = Microphone(name, float(x), float(y), 0.0)
+        sim.add_microphone(mic)
+    for i, (x, y) in enumerate(xy_outer2):
+        name = f"mic_ring_{i:02d}"
+        mic = Microphone(name, float(x), float(y), 0.0)
+        sim.add_microphone(mic)
+    center_mic = Microphone("center", 0.0, 0.0, 0.0)
+    sim.add_microphone(center_mic)
 
 # Ambient (all sources → ears)
 sim.apply_ambient_audio_to_ears()

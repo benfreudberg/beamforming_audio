@@ -180,7 +180,7 @@ class MVDRBeamformer:
         # self.plot_beam_direct(k_idx=self.F//32, c=self.cfg.speed_of_sound)
         # self.plot_beam_direct(k_idx=self.F//64, c=self.cfg.speed_of_sound)
 
-    def plot_beam_direct(self, k_idx, w=None, theta_deg=np.linspace(-90, 90, 721), c=343):
+    def plot_beam_direct(self, k_idx, w=None, theta_deg=np.linspace(-180, 180, 721), c=343):
         """
         Plot beampattern for arbitrary mic geometry via direct array-factor evaluation.
         - theta is measured from broadside (z-axis), in the x–z plane.
@@ -196,13 +196,10 @@ class MVDRBeamformer:
 
         # mic positions (M,3)
         R = np.asarray(self.mic_pos)           # columns: x, y, z
-        if R.shape[1] < 3:
-            # if you store 2D (x,z), promote to 3D
-            R = np.column_stack([R[:,0], np.zeros(len(R)), R[:,1]])
 
-        # scan unit vectors u(theta) = [sinθ, 0, cosθ]
+        # scan unit vectors u(theta) = [sinθ, -cosθ, 0]
         theta = np.deg2rad(theta_deg)
-        u = np.stack([np.sin(theta), np.zeros_like(theta), np.cos(theta)], axis=1)  # (T,3)
+        u = np.stack([np.sin(theta), -np.cos(theta), np.zeros_like(theta)], axis=1)  # (T,3)
 
         # steering matrix A(t, m) = exp(-j k r_m · u_t)
         A = np.exp(-1j * k * (u @ R.T))        # shape (T, M)
@@ -223,7 +220,7 @@ class MVDRBeamformer:
 
         ax.set_theta_zero_location('N')        # 0° up (broadside)
         ax.set_theta_direction(1)             # increase ccw
-        ax.set_thetamin(-90); ax.set_thetamax(90)
+        ax.set_thetamin(-180); ax.set_thetamax(180)
         ax.set_ylim([-30, 1])
         ax.set_rlabel_position(55)
         ax.set_title(f"Direct Beampattern @ {int(np.round(f))} Hz")
@@ -252,9 +249,7 @@ class MVDRBeamformer:
                 y_hop = self._process_one_frame()
                 emitted.append(y_hop)
                 self._inbuf_fill -= self.Nh
-        # plt.plot(self._r_accum)
-        # plt.plot(self._p_accum)
-        # plt.show()
+
         return np.concatenate(emitted, axis=0) if emitted else np.empty(0, dtype=float)
 
     def _process_one_frame(self) -> np.ndarray:
@@ -265,8 +260,8 @@ class MVDRBeamformer:
         Y = np.empty(self.F, dtype=np.complex128)
         update_weights = (self._frame_idx % self.cfg.update_every_n_frames) == 0
         for k in range(self.F):
-            if k < 3:
-                Y[k] = 0.0
+            if k < 9:
+                Y[k] = 0.0 # filter out low frequencies
             else:
                 Y[k] = self._mvdr_step(k, X[k], update_weights)
         # ---- Synthesis (iFFT + window) ----
@@ -285,9 +280,6 @@ class MVDRBeamformer:
         """Window last frame and compute one-sided rFFT for each mic."""
         x_win = (self._inbuf * self.win[None, :]).astype(float)  # (M, Nw)
         X = np.fft.rfft(x_win, n=self.nfft, axis=1)  # (M, F)
-        # frequency filtering
-        X[:, 0] = 0
-        # X[:, self.F//3:] = 0
         return X.T.copy()  # (F, M)
 
     def _mvdr_step(self, k: int, xk: np.ndarray, update_weights: bool) -> np.complex128:
@@ -334,10 +326,10 @@ class MVDRBeamformer:
         wk = wk / (np.vdot(wk, dk) + 1e-12)  # keep w^H d = 1 exactly
 
         # if self._frame_idx in [10, 100, 300, 1000, 2000]:
-        # if self._frame_idx == 2000:
-        #     if k in [1, 2, 5, 10, 35, 60]:
-        #     # if k == 35:
-        #         self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
+        if self._frame_idx == 3000:
+            if k in [3, 9, 35, 60]:
+            # if k == 35:
+                self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
 
         return wk.conj().T @ xk
 

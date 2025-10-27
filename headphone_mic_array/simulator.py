@@ -89,9 +89,9 @@ class VirtualEar(Microphone):
             raise TypeError("side must be a string: 'left_ear' or 'right_ear'.")
         s = side.strip().lower()
         if s == "left_ear":
-            name, x, y, z = "left_ear", -0.07, 0.0, 0.0
+            name, x, y, z = "left_ear", -0.075, 0.0, 0.0
         elif s == "right_ear":
-            name, x, y, z = "right_ear", 0.07, 0.0, 0.0
+            name, x, y, z = "right_ear", 0.075, 0.0, 0.0
         else:
             raise ValueError("side must be either 'left_ear' or 'right_ear'.")
         super().__init__(name=name, x=x, y=y, z=z)
