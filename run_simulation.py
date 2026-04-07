@@ -6,6 +6,8 @@ from headphone_mic_array.simulator import (
     Microphone,
 )
 from headphone_mic_array.geometry import Node
+SAMPLE_RATE = 16000  # internal sample rate for this application (Hz)
+
 
 # todo move these functions to another file
 def _x_at_K(A, s0, r, K, include_center: bool):
@@ -212,13 +214,13 @@ dialog_voice_b = audio_dir / "dialog_voice_b.wav"
 food_hall_L = audio_dir / "food_hall_L.wav"
 food_hall_R = audio_dir / "food_hall_R.wav"
 
-sim = MicrophoneArraySimulation()
-sim.add_sound_source(SoundSource(4, 1, 0, descriptive_voice_file))
-sim.add_sound_source(SoundSource(0, 2, 0, informative_voice_file))
-sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a))
-sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b))
-sim.add_sound_source(SoundSource(-4, -5, 0, food_hall_L))
-sim.add_sound_source(SoundSource(4, -5, 0, food_hall_R))
+sim = MicrophoneArraySimulation(sample_rate=SAMPLE_RATE)
+sim.add_sound_source(SoundSource(4, 1, 0, descriptive_voice_file, sample_rate=SAMPLE_RATE))
+sim.add_sound_source(SoundSource(0, 2, 0, informative_voice_file, sample_rate=SAMPLE_RATE))
+sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a, sample_rate=SAMPLE_RATE))
+sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b, sample_rate=SAMPLE_RATE))
+sim.add_sound_source(SoundSource(-4, -5, 0, food_hall_L, sample_rate=SAMPLE_RATE))
+sim.add_sound_source(SoundSource(4, -5, 0, food_hall_R, sample_rate=SAMPLE_RATE))
 sim.add_target("dialog_voice_a", 1.5, 2, 0)
 sim.add_target("dialog_voice_b", -1.5, 2, 0)
 
@@ -239,7 +241,7 @@ if not circular:
     for x in xs:
         z = 0.0
         name = f"mic_x{int(round(x*100)):02d}cm"
-        mic = Microphone(name, float(x), 0.0, float(z))
+        mic = Microphone(name, float(x), 0.0, float(z), sample_rate=SAMPLE_RATE)
         sim.add_microphone(mic)
         if center_mic is None or center_mic.distance_to(origin) > mic.distance_to(origin):
             center_mic = mic
@@ -251,21 +253,21 @@ else:
 
     for i, (x, y) in enumerate(xy_inner):
         name = f"mic_ring_{i:02d}"
-        mic = Microphone(name, float(x), float(y), 0.0)
+        mic = Microphone(name, float(x), float(y), 0.0, sample_rate=SAMPLE_RATE)
         sim.add_microphone(mic)
     for i, (x, y) in enumerate(xy_mid):
         name = f"mic_ring_{i:02d}"
-        mic = Microphone(name, float(x), float(y), 0.0)
+        mic = Microphone(name, float(x), float(y), 0.0, sample_rate=SAMPLE_RATE)
         sim.add_microphone(mic)
     for i, (x, y) in enumerate(xy_outer):
         name = f"mic_ring_{i:02d}"
-        mic = Microphone(name, float(x), float(y), 0.0)
+        mic = Microphone(name, float(x), float(y), 0.0, sample_rate=SAMPLE_RATE)
         sim.add_microphone(mic)
     for i, (x, y) in enumerate(xy_outer2):
         name = f"mic_ring_{i:02d}"
-        mic = Microphone(name, float(x), float(y), 0.0)
+        mic = Microphone(name, float(x), float(y), 0.0, sample_rate=SAMPLE_RATE)
         sim.add_microphone(mic)
-    center_mic = Microphone("center", 0.0, 0.0, 0.0)
+    center_mic = Microphone("center", 0.0, 0.0, 0.0, sample_rate=SAMPLE_RATE)
     sim.add_microphone(center_mic)
 
 # Ambient (all sources → ears)
