@@ -24,12 +24,12 @@ Outputs are written to output/ (or the path set in the OUTPUT_DIR env var).
 
 from pathlib import Path
 
-from headphone_mic_array.simulator import (
+from mic_array.simulator import (
     MicrophoneArraySimulation,
     SoundSource,
     Microphone,
 )
-from headphone_mic_array.bird_finder import BirdFinderConfig, BirdFinderPipeline
+from mic_array.bird_finder import BirdFinderConfig, BirdFinderPipeline
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -49,7 +49,7 @@ birds_dir = base_dir / "input_audio_files" / "birds"
 # Distances are in metres; all sources are 10 m away at varying azimuths.
 bird_sources = [
     # (wav_file,                                           x,     y,    z, scale)
-    (birds_dir / "XC1029980 - Mountain Chickadee - Poecile gambeli.wav",     10.0,   5.0,  -3.0, 0.65),
+    (birds_dir / "XC1029980 - Mountain Chickadee - Poecile gambeli.wav",     10.0,   5.0,  -3.0, 0.5),
     (birds_dir / "XC1073500 - Crested Quetzal - Pharomachrus antisianus.wav", -7.0,  10.0, 0.0, 1.0),
     (birds_dir / "XC632143 - White-necked Raven - Corvus albicollis.wav",     4.0,  20.0,  4.0, 0.75),
     (birds_dir / "XC767753 - Robin Accentor - Prunella rubeculoides.wav",    5.0,  -17.0, 4.0, 1.0),
@@ -90,9 +90,12 @@ def staged_arm_distances() -> list[float]:
             pos += medium_spacing * 1.2 ** i
         distances.append(pos)
 
-    # larger gap, then 1 wide mic
+    # larger gap, then 3 wide mics
     pos += gap_large
-    distances.append(pos)
+    for i in range(3):
+        if i > 0:
+            pos += wide_spacing * 1.2 ** i
+        distances.append(pos)
 
     return distances
 
@@ -141,42 +144,55 @@ for i, y in enumerate(y_positions):
 # Record
 # ---------------------------------------------------------------------------
 
-# sim.run_recording()
-
-# Optional: raw ambient mix to ears so you can hear the unprocessed scene
+# 1) Ambient mix to ears so you can hear the unprocessed scene.
 sim.apply_ambient_audio_to_ears()
 sim.export_ears_stereo("bird_raw_ambient.wav")
 sim.reset_recordings(target="ears")
+
+# 2) Record at every microphone.
+sim.run_recording()
 
 # ---------------------------------------------------------------------------
 # Bird-finding pipeline
 # ---------------------------------------------------------------------------
 
 config = BirdFinderConfig(
-    window_s=4.0,
-    hop_ms=100.0,
-    n_peaks=20,
     min_freq_hz=1_000.0,
     max_freq_hz=22_000.0,
+    short_window_s=0.1,
+    short_hop_ms=25.0,
+    n_peaks=20,
+    whitened_min_height=4.0,
+    whitened_min_prominence=2.0,
+    abs_floor_percentile=25.0,
+    abs_floor_multiple=4.0,
     freq_tolerance_hz=50.0,
-    max_miss_frames=5,
+    max_miss_frames=8,
     high_freq_bias=0.01,
-    angle_threshold_deg=3.0,
+    min_track_age_frames=2,
+    angle_threshold_deg=6.0,
+    source_max_miss_frames=80,
+    coarse_az_step_deg=5.0,
+    coarse_el_step_deg=10.0,
+    fine_step_min_deg=0.25,
+    fine_step_max_deg=3.0,
+    min_peak_snr=4.0,
+    min_doa_confidence=12.0,
+    doa_decimation=4,
+    min_source_lifetime_frames=80,
+    max_sources_to_export=8,
     reference_mic_index=0,   # center mic is index 0 in sim._microphones
 )
 
 pipeline = BirdFinderPipeline(sim, config=config)
-
-# TODO: un-comment once pipeline steps are implemented:
-# pipeline.run()
-# pipeline.plot_sources(animate=True)
-# pipeline.export_ear_tracks()
+pipeline.run()
+pipeline.plot_sources(animate=True, audio_filename="bird_raw_ambient.wav")
+# pipeline.export_target_tracks()  # disabled while we iterate on localization
 
 print("Bird-finder simulation complete.")
 print(f"  Microphones: {len(sim._microphones)}")
 print(f"  Sources    : {len(sim._sources)}")
 print(f"  Sample rate: {sim.sample_rate} Hz")
-print("Run pipeline.run() once BirdFinderPipeline is implemented.")
 
 # Visualize setup
-sim.show_scene_3d()
+# sim.show_scene_3d()

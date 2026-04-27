@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # If you need this path tweak, keep it. Otherwise prefer running with: python -m some_pkg.my_script
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from headphone_mic_array.audio_utils import (
+from mic_array.audio_utils import (
     read_wav_float_mono, resample_to, apply_fractional_delay,
     get_output_dir, save_wav_float32, project_root
 )

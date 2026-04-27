@@ -1,11 +1,11 @@
 from pathlib import Path
 import numpy as np
-from headphone_mic_array.simulator import (
+from mic_array.simulator import (
     MicrophoneArraySimulation,
     SoundSource,
     Microphone,
 )
-from headphone_mic_array.geometry import Node
+from mic_array.geometry import Node
 SAMPLE_RATE = 16000  # internal sample rate for this application (Hz)
 
 

@@ -7,6 +7,7 @@ import numpy as np
 
 # Use shared geometry primitives
 from .geometry import Node
+from .steering import delays_far_field, delays_near_field
 
 import matplotlib.pyplot as plt
 
@@ -147,16 +148,11 @@ class MVDRBeamformer:
         """Return delays tau[m] in seconds for each mic relative to reference."""
         c = self.cfg.speed_of_sound
         if self._near_field:
-            # p = self._target_point.as_array()
-            # dists = np.linalg.norm(self.mic_pos - p[None, :], axis=1)  # (M,)
-            dists = np.zeros(self.M)
-            for i, mic in enumerate(self.mic_pos1):
-                dists[i] = mic.distance_to(self._target_point)
-            tau = (dists - dists.min()) / c
-        else:
-            u = self._target_u
-            tau = -(self.mic_pos @ u) / c
-            tau -= tau.min()
+            return delays_near_field(self.mic_pos, self._target_point.as_array(), c=c, causal=True)
+        # Far-field: target_u stored as unit vector; recover az/el is wasteful, so call helper directly.
+        u = self._target_u
+        tau = -(self.mic_pos @ u) / c
+        tau -= tau.min()
         return tau.astype(float)
 
     def _update_steering(self) -> None:
@@ -326,10 +322,10 @@ class MVDRBeamformer:
         wk = wk / (np.vdot(wk, dk) + 1e-12)  # keep w^H d = 1 exactly
 
         # if self._frame_idx in [10, 100, 300, 1000, 2000]:
-        if self._frame_idx == 3000:
-            if k in [3, 9, 35, 60]:
-            # if k == 35:
-                self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
+        # Debug beam-pattern plotting (disabled for batch use; re-enable for inspection).
+        # if self._frame_idx == 3000:
+        #     if k in [3, 9, 35, 60]:
+        #         self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
 
         return wk.conj().T @ xk
 

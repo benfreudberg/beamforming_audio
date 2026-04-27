@@ -40,17 +40,21 @@ The setup and recording steps are the same as the headphone workflow: place soun
 The bird-finding application operates at 48 kHz (higher sample rate for better spatial resolution at bird-call frequencies) and has different goals from the headphone application and requries a different workflow.
 
 ### Approach Overview
-Rather than pre-specifying target locations, the bird-finder dynamically discovers sound sources in real-time. The core pipeline operates as follows:
+Rather than pre-specifying target locations, the bird-finder dynamically discovers sound sources from the recordings. The pipeline operates on a single Short-Time Fourier Transform (STFT) computed at all microphones — a 100 ms window with a 25 ms hop. Every stage below uses these short frames.
 
-1. **Rolling FFT Analysis**: A reference microphone records the acoustic scene. A rolling 4-second window (updated every 100 ms) is Fourier-transformed to produce a sequence of magnitude spectra.
+1. **Spectral whitening of the reference mic.** Each frequency bin's time series is divided by its long-term median magnitude. Quiet bins get amplified and loud bins get attenuated, so a soft, high-pitched bird isn't masked by a loud, low-pitched one. The output is a "multiples of typical bin energy" spectrogram where peak height is comparable across frequencies and across sources.
 
-2. **Peak Frequency Tracking**: For each FFT frame, the top ~20 local-maxima frequencies are extracted. A continuity tracker maintains coherent peaks across frames, with a slight bias towards higher frequencies because those will give us better locating precision.
+2. **Per-frame peak picking with two gates.** In each short frame, peaks are picked from the whitened spectrum. Up to ~20 peaks per frame are kept, but each peak must (a) clear a unitless whitened-magnitude / prominence threshold (per-bin signal strength) and (b) clear an absolute-magnitude floor measured from the raw reference mic (so noisy frames during silence don't promote anything). If only a few peaks pass both gates, only those go forward.
 
-3. **Far-Field Localization**: For each active frequency peak, a direction-of-arrival (DOA) algorithm determines the azimuth and elevation of that frequency. Because many frequencies often come from the same physical source, nearby DOAs are clustered to yield distinct source estimates.
+3. **Peak tracking across frames.** A frequency-continuity tracker glues per-frame peaks into tracks. A peak is re-associated with an existing track only if it's within a small frequency window *and* its magnitude is within an order-of-magnitude band of the track's running average — this stops a faint noise bin from inheriting the identity of a recently-dead bird call. A track must survive multiple frames before it's allowed to influence localization.
 
-4. **Visualization and Auralization**: Source directions are plotted as an animated polar/elevation map, showing sources appearing, disappearing, and moving. The ambient stereo ear-track is exported alongside this visualization to provide auditory context.
+4. **Direction-of-arrival per peak.** For each surviving peak track, a Bartlett (delay-and-sum) DOA scan over an azimuth/elevation grid is run on the same short STFT snapshot. Output is a far-field direction with a confidence score combining spectral SNR and the spatial sharpness of the DOA peak. Low-confidence directions are discarded.
 
-5. **Per-Source Beamforming**: Once sources are localized, beamforming targets are created at each source location to extract isolated audio streams for each sound source, similar to the headphone workflow. These "source" audio tracks can be shared with the Merlin Bird ID app so that we can label each source with a type of bird.
+5. **Clustering and source tracking.** Peaks from harmonics of the same bird produce nearby DOAs, so directions within an angular threshold are clustered into one source. A second-stage tracker assigns persistent integer IDs to clusters across frames. Sources are emitted only when actually observed in the current frame — short missed gaps are tolerated for ID continuity but never re-drawn as ghost detections.
+
+6. **Visualization and auralization.** Detected source directions are plotted as an animated rectangular azimuth/elevation map. Ground-truth sources are colored stars in a legend; their size and brightness pulse with the per-source RMS envelope so it's easy to see which bird is calling at any moment. The original ambient stereo ear-track is muxed into the MP4 to give auditory context. A plot-time lifetime gate suppresses source IDs that were only seen briefly, so the visualization shows real persistent detections rather than every transient cluster.
+
+7. **Per-source beamforming (todo).** Once a source has a long enough history, an MVDR beamformer can be steered through that source's recorded trajectory to extract an isolated audio stream of just that bird, similar to the headphone workflow. These per-source tracks can be fed into a tool like the Merlin Bird ID app for species labeling.
 
 ## Sample Audio Sources
 Some of the audio files used for the simulation stored under input_audio_files I created myself. Some were sourced from https://www.youtube.com/watch?v=NTiDNF0ofNk and some from https://pixabay.com/sound-effects/food-hall-49662/. Bird recordings are from https://xeno-canto.org/.
