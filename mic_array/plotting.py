@@ -119,6 +119,35 @@ def _setup_az_el_axes(ax, title: str) -> None:
     ax.set_title(title)
 
 
+# 16:9 camera with 105 deg diagonal FOV, looking along +y.
+#   half_diag = 52.5 deg
+#   half_h    = 52.5 * 16 / sqrt(16^2 + 9^2) ~= 45.76 deg
+#   half_v    = 52.5 *  9 / sqrt(16^2 + 9^2) ~= 25.74 deg
+# +y direction is at azimuth 90 deg, elevation 0 deg.
+_CAM_DIAG_DEG = 105.0
+_CAM_ASPECT = (16.0, 9.0)
+_CAM_DIAG_NORM = float(np.hypot(*_CAM_ASPECT))
+CAMERA_FOV_AZ_CENTER = 90.0
+CAMERA_FOV_EL_CENTER = 0.0
+CAMERA_FOV_HALF_H = 0.5 * _CAM_DIAG_DEG * _CAM_ASPECT[0] / _CAM_DIAG_NORM
+CAMERA_FOV_HALF_V = 0.5 * _CAM_DIAG_DEG * _CAM_ASPECT[1] / _CAM_DIAG_NORM
+
+
+def _draw_camera_fov(ax) -> None:
+    """Outline the field of view of a 16:9 camera with 90 deg diagonal FOV
+    pointing along +y on the az/el plot."""
+    from matplotlib.patches import Rectangle
+    az_min = CAMERA_FOV_AZ_CENTER - CAMERA_FOV_HALF_H
+    el_min = CAMERA_FOV_EL_CENTER - CAMERA_FOV_HALF_V
+    width = 2 * CAMERA_FOV_HALF_H
+    height = 2 * CAMERA_FOV_HALF_V
+    rect = Rectangle((az_min, el_min), width, height,
+                     fill=False, edgecolor="#1f78b4", linewidth=1.5,
+                     linestyle="--", alpha=0.8, zorder=1.5,
+                     label="Camera FOV (16:9, 105 deg diag)")
+    ax.add_patch(rect)
+
+
 def _gt_color(i: int) -> Tuple[float, float, float]:
     cmap = plt.cm.tab10
     return cmap(i % 10)[:3]
@@ -151,6 +180,7 @@ def plot_sources_static(
 
     ax1 = fig.add_subplot(1, 2, 1)
     _setup_az_el_axes(ax1, "Detected source directions")
+    _draw_camera_fov(ax1)
 
     for srcs in sources_per_frame:
         for s in srcs:
@@ -203,6 +233,7 @@ def plot_sources_animation(
     fig = plt.figure(figsize=(12, 5))
     ax = fig.add_subplot(1, 1, 1)
     _setup_az_el_axes(ax, "Detected sources (animated)")
+    _draw_camera_fov(ax)
 
     times_arr = np.asarray(times_s, dtype=float)
     n_total = len(sources_per_frame)

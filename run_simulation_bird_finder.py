@@ -23,6 +23,7 @@ Outputs are written to output/ (or the path set in the OUTPUT_DIR env var).
 """
 
 from pathlib import Path
+import math
 
 from mic_array.simulator import (
     MicrophoneArraySimulation,
@@ -45,59 +46,57 @@ SPEED_OF_SOUND = 340.0    # m/s
 base_dir  = Path(__file__).resolve().parent
 birds_dir = base_dir / "input_audio_files" / "birds"
 
-# Place each bird at a different position in the horizontal plane (x, y, z).
-# Distances are in metres; all sources are 10 m away at varying azimuths.
+# Place each bird at a different (x, y, z) position, in metres.
 bird_sources = [
     # (wav_file,                                           x,     y,    z, scale)
-    (birds_dir / "XC1029980 - Mountain Chickadee - Poecile gambeli.wav",     10.0,   5.0,  -3.0, 0.5),
-    (birds_dir / "XC1073500 - Crested Quetzal - Pharomachrus antisianus.wav", -7.0,  10.0, 0.0, 1.0),
-    (birds_dir / "XC632143 - White-necked Raven - Corvus albicollis.wav",     4.0,  20.0,  4.0, 0.75),
-    (birds_dir / "XC767753 - Robin Accentor - Prunella rubeculoides.wav",    5.0,  -17.0, 4.0, 1.0),
-    (birds_dir / "XC821441 - Great Horned Owl - Bubo virginianus.wav",    -5.0,  17.0, 8.0, 1.0),
+    (birds_dir / "XC1029980 - Mountain Chickadee - Poecile gambeli.wav",   10.0,   5.0, -3.0, 0.5),
+    (birds_dir / "XC877052 - Bald Eagle - Haliaeetus leucocephalus.wav",   -7.0,  10.0,  0.0, 1.5),
+    (birds_dir / "XC632143 - White-necked Raven - Corvus albicollis.wav",   4.0,  20.0,  4.0, 0.75),
+    (birds_dir / "XC767753 - Robin Accentor - Prunella rubeculoides.wav",   5.0, -17.0,  4.0, 1.0),
+    (birds_dir / "XC821441 - Great Horned Owl - Bubo virginianus.wav",     -5.0,  17.0,  8.0, 1.0),
 ]
 
 # ---------------------------------------------------------------------------
-# Array geometry helpers
+# Array geometry
 # ---------------------------------------------------------------------------
+#
+# Robustness winner of experiments/array_sweep.py --robust: spiral_22_rmin8_r60
+# (best mean and best worst-case score across 5 distinct bird scenes):
+#   * 22 mics on a golden-angle log spiral in the x/z plane, r 8 mm -> 0.60 m.
+#       - With max_freq_hz capped at 8 kHz, lambda/2 = 21 mm, so an 8 mm
+#         minimum baseline comfortably avoids spatial aliasing at the high
+#         end. Sweep showed inner radii of 8..15 mm work; 8 mm scored best.
+#       - The golden-angle azimuth ensures no two mic-pair baselines share
+#         the same length AND direction (flat sidelobes).
+#   * 1 center mic at the origin (reference for the BirdFinder pipeline).
+#   * 2-mic y-stub at +/-40 mm to break the front/back ambiguity any planar
+#     array has on its own. Sweep showed 4 y-mics is overkill at this band.
+#   * Total 25 mics, max baseline ~1.02 m. Larger apertures (1.27 m, 1.54 m)
+#     hurt close-pair resolution from sidelobe stacking.
+#
+# See experiments/array_sweep.py for the full A/B comparison and
+# experiments/source_spectra.py for the FFTs that motivated the 8 kHz
+# analysis cap (the highest significant peak across all sources is ~6.4 kHz,
+# from the chickadee; everything else peaks below 2 kHz).
 
-def staged_arm_distances() -> list[float]:
-    """
-    Distances from origin for one arm with three spacing regimes:
-      - 4 tightly spaced mics
-      - gap
-      - 3 medium spaced mics
-      - larger gap
-      - 1 wider spaced mic
-    """
-    tight_spacing = 0.0075   # 7.5 mm, keeps spatial aliasing controlled near 22 kHz
-    medium_spacing = 0.0150  # 15 mm
-    wide_spacing = 0.0300    # 30 mm
-    gap_small = 0.0500       # 5 cm
-    gap_large = 0.1200       # 12 cm
+GOLDEN_ANGLE_RAD = math.radians(137.50776405)
 
-    distances: list[float] = []
 
-    # 3 tight mics
-    pos = 0.0
-    for i in range(3):
-        pos += tight_spacing * 1.2 ** i
-        distances.append(pos)
+def golden_log_spiral_xz(
+    n: int,
+    r_min: float = 0.005,
+    r_max: float = 0.45,
+) -> list[tuple[float, float]]:
+    """N points in the x/z plane on a golden-angle log spiral, r_min..r_max."""
+    if n <= 0:
+        return []
+    out: list[tuple[float, float]] = []
+    for i in range(n):
+        r = r_min * (r_max / r_min) ** (i / max(n - 1, 1))
+        theta = i * GOLDEN_ANGLE_RAD
+        out.append((r * math.cos(theta), r * math.sin(theta)))
+    return out
 
-    # gap, then 3 medium mics
-    pos += gap_small
-    for i in range(3):
-        if i > 0:
-            pos += medium_spacing * 1.2 ** i
-        distances.append(pos)
-
-    # larger gap, then 3 wide mics
-    pos += gap_large
-    for i in range(3):
-        if i > 0:
-            pos += wide_spacing * 1.2 ** i
-        distances.append(pos)
-
-    return distances
 
 # ---------------------------------------------------------------------------
 # Build simulation
@@ -110,35 +109,18 @@ for wav_file, x, y, z, scale in bird_sources:
     sim.add_sound_source(SoundSource(x, y, z, wav_file, scale=scale, sample_rate=SAMPLE_RATE))
 
 # --- Microphone array ---
-# Buildable staged-arm design:
-# 1) +x arm from origin: 4 tight, gap, 4 medium, larger gap, 1 wide.
-# 2) +z arm from origin with the same pattern (origin mic not duplicated).
-# 3) +y arm from (x=10 cm, z=10 cm): 2 tight spacings.
-# 4) Short -y mirror branch from (x=10 cm, z=10 cm) (2 mics) to improve +y/-y discrimination.
+# Mic 0 (center) at origin; reference mic for the BirdFinder pipeline.
+sim.add_microphone(Microphone("center", 0.0, 0.0, 0.0, sample_rate=SAMPLE_RATE))
 
-center_mic = Microphone("center", 0.0, 0.0, 0.0, sample_rate=SAMPLE_RATE)
-sim.add_microphone(center_mic)
+# 22 mics on the golden-angle log spiral.
+for i, (x, z) in enumerate(golden_log_spiral_xz(n=22, r_min=0.008, r_max=0.60)):
+    sim.add_microphone(Microphone(f"sp_{i:02d}", float(x), 0.0, float(z),
+                                  sample_rate=SAMPLE_RATE))
 
-arm_d = staged_arm_distances()
-
-# +x arm
-for i, x in enumerate(arm_d):
-    sim.add_microphone(Microphone(f"x_arm_{i:02d}", float(x), 0.0, 0.0, sample_rate=SAMPLE_RATE))
-
-# +z arm
-for i, z in enumerate(arm_d):
-    sim.add_microphone(Microphone(f"z_arm_{i:02d}", 0.0, 0.0, float(z), sample_rate=SAMPLE_RATE))
-
-# +y arm at (x=10 cm, z=10 cm)
-y_anchor_x = 0.10
-y_anchor_z = 0.10
-y_medium_spacing = 0.0150
-y_positions = [-y_medium_spacing, 0, y_medium_spacing]
-
-for i, y in enumerate(y_positions):
-    sim.add_microphone(
-        Microphone(f"y_offset_arm_{i:02d}", y_anchor_x, float(y), y_anchor_z, sample_rate=SAMPLE_RATE)
-    )
+# Y-stub: 2 mics at +/-40 mm to disambiguate +y vs -y.
+for i, y in enumerate([-0.04, 0.04]):
+    sim.add_microphone(Microphone(f"y_stub_{i:02d}", 0.0, float(y), 0.0,
+                                  sample_rate=SAMPLE_RATE))
 
 # ---------------------------------------------------------------------------
 # Record
@@ -156,9 +138,13 @@ sim.run_recording()
 # Bird-finding pipeline
 # ---------------------------------------------------------------------------
 
+# max_freq_hz tightened to 8 kHz: the highest significant spectral peak across
+# all bird sources is the Mountain Chickadee at ~6.4 kHz (see
+# experiments/source_spectra.py). Capping above that band suppresses noise-
+# driven detections without losing any real signal.
 config = BirdFinderConfig(
-    min_freq_hz=1_000.0,
-    max_freq_hz=22_000.0,
+    min_freq_hz=700.0,
+    max_freq_hz=8_000.0,
     short_window_s=0.1,
     short_hop_ms=25.0,
     n_peaks=20,
@@ -195,4 +181,4 @@ print(f"  Sources    : {len(sim._sources)}")
 print(f"  Sample rate: {sim.sample_rate} Hz")
 
 # Visualize setup
-# sim.show_scene_3d()
+sim.show_scene_3d()
