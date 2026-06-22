@@ -203,6 +203,30 @@ def circular_array_xy(
     y = r * np.sin(theta)
     return np.column_stack([x, y])
 
+# Golden angle, in radians, used for the log-spiral microphone layout.
+GOLDEN_ANGLE_RAD = np.deg2rad(137.50776405)
+
+
+def golden_log_spiral_xy(
+    n: int,
+    r_min: float = 0.005,
+    r_max: float = 0.45,
+) -> list[tuple[float, float]]:
+    """N points in the x/y plane on a golden-angle log spiral, r_min..r_max.
+
+    The radius grows geometrically from r_min to r_max while the angle steps
+    by the golden angle, so no two mic-pair baselines share the same length
+    AND direction (flat sidelobes).
+    """
+    if n <= 0:
+        return []
+    out: list[tuple[float, float]] = []
+    for i in range(n):
+        r = r_min * (r_max / r_min) ** (i / max(n - 1, 1))
+        theta = i * GOLDEN_ANGLE_RAD
+        out.append((r * np.cos(theta), r * np.sin(theta)))
+    return out
+
 # project_root is where this script lives
 base_dir = Path(__file__).resolve().parent
 audio_dir = base_dir / "input_audio_files"
@@ -211,21 +235,27 @@ descriptive_voice_file = audio_dir / "descriptive.wav"
 informative_voice_file = audio_dir / "informative.wav"
 dialog_voice_a = audio_dir / "dialog_voice_a.wav"
 dialog_voice_b = audio_dir / "dialog_voice_b.wav"
+mathworks = audio_dir / "mathworks.wav"
 food_hall_L = audio_dir / "food_hall_L.wav"
 food_hall_R = audio_dir / "food_hall_R.wav"
 
 sim = MicrophoneArraySimulation(sample_rate=SAMPLE_RATE)
-sim.add_sound_source(SoundSource(4, 1, 0, descriptive_voice_file, sample_rate=SAMPLE_RATE))
-sim.add_sound_source(SoundSource(0, 2, 0, informative_voice_file, sample_rate=SAMPLE_RATE))
-sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a, sample_rate=SAMPLE_RATE))
-sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b, sample_rate=SAMPLE_RATE))
+sim.add_sound_source(SoundSource(4, 1, 0, descriptive_voice_file, sample_rate=SAMPLE_RATE, scale=.8))
+sim.add_sound_source(SoundSource(0, 2, 0, informative_voice_file, sample_rate=SAMPLE_RATE, scale=.8))
+# sim.add_sound_source(SoundSource(1.5, 2, 0, dialog_voice_a, sample_rate=SAMPLE_RATE, scale=1.5))
+# sim.add_sound_source(SoundSource(-1.5, 2, 0, dialog_voice_b, sample_rate=SAMPLE_RATE, scale=1.5))
+sim.add_sound_source(SoundSource(-1.5, 2, 0, mathworks, sample_rate=SAMPLE_RATE, scale=1.5))
 sim.add_sound_source(SoundSource(-4, -5, 0, food_hall_L, sample_rate=SAMPLE_RATE))
 sim.add_sound_source(SoundSource(4, -5, 0, food_hall_R, sample_rate=SAMPLE_RATE))
-sim.add_target("dialog_voice_a", 1.5, 2, 0)
-sim.add_target("dialog_voice_b", -1.5, 2, 0)
+sim.add_target("mathworks", -1.5, 2, 0)
 
-circular = True
-if not circular:
+# Geometry selection: "linear", "circular", or "spiral".
+# - "linear"  : symmetric geometric-growth line array along x.
+# - "circular": concentric rings in the x/y plane.
+# - "spiral"  : golden-angle log spiral in x/z + y-stub (same as the bird finder).
+array_geometry = "spiral"
+
+if array_geometry == "linear":
     total_length = .24      # meters
     center_spacing = 0.018    # meters between the two innermost mics
     r_target = 1.3            # outward spacing ratio (>1 grows, 1.0 = uniform)
@@ -245,7 +275,7 @@ if not circular:
         sim.add_microphone(mic)
         if center_mic is None or center_mic.distance_to(origin) > mic.distance_to(origin):
             center_mic = mic
-else:
+elif array_geometry == "circular":
     xy_inner = circular_array_xy(diameter=0.06, num_elements=8, first_angle=2*np.pi/16)
     xy_mid = circular_array_xy(diameter=0.14, num_elements=6, first_angle=0)
     xy_outer = circular_array_xy(diameter=0.3, num_elements=6, first_angle=-2*np.pi/18)
@@ -269,6 +299,21 @@ else:
         sim.add_microphone(mic)
     center_mic = Microphone("center", 0.0, 0.0, 0.0, sample_rate=SAMPLE_RATE)
     sim.add_microphone(center_mic)
+elif array_geometry == "spiral":
+    # Golden-angle log spiral in the x/y plane + center mic.
+    # Same robustness-winning spiral layout used by the bird finder
+    # (see run_simulation_bird_finder.py), rotated into the x/y plane to
+    # match the circular array. 23 mics total.
+    center_mic = Microphone("center", 0.0, 0.0, 0.0, sample_rate=SAMPLE_RATE)
+    sim.add_microphone(center_mic)
+
+    # 22 mics on the golden-angle log spiral in the x/y plane.
+    for i, (x, y) in enumerate(golden_log_spiral_xy(n=22, r_min=0.02, r_max=0.60)):
+        sim.add_microphone(Microphone(f"sp_{i:02d}", float(x), float(y), 0.0,
+                                      sample_rate=SAMPLE_RATE))
+else:
+    raise ValueError(f"Unknown array_geometry: {array_geometry!r}. "
+                     "Choose 'linear', 'circular', or 'spiral'.")
 
 # Ambient (all sources → ears)
 sim.apply_ambient_audio_to_ears()
@@ -284,11 +329,12 @@ sim.export_target_tracks("DS")
 sim.create_target_tracks_MVDR()
 sim.export_target_tracks("MVDR")
 sim.apply_targets_to_ears()
-sim.export_ears_stereo("targets_applied_to_ears.wav")
+sim.export_ears_stereo("targets_applied_to_ears.wav", gain=4)
 
 # Export center mic recording (if found)
 if center_mic is not None:
     center_mic.export()
 
 # Visualize setup
-sim.show_scene_3d()
+sim.show_scene_2d()
+# sim.show_scene_3d()

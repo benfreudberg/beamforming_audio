@@ -256,7 +256,7 @@ class MVDRBeamformer:
         Y = np.empty(self.F, dtype=np.complex128)
         update_weights = (self._frame_idx % self.cfg.update_every_n_frames) == 0
         for k in range(self.F):
-            if k < 9:
+            if k < 8:
                 Y[k] = 0.0 # filter out low frequencies
             else:
                 Y[k] = self._mvdr_step(k, X[k], update_weights)
@@ -323,7 +323,7 @@ class MVDRBeamformer:
 
         # if self._frame_idx in [10, 100, 300, 1000, 2000]:
         # Debug beam-pattern plotting (disabled for batch use; re-enable for inspection).
-        # if self._frame_idx == 3000:
+        # if self._frame_idx == 1000:
         #     if k in [3, 9, 35, 60]:
         #         self.plot_beam_direct(k_idx=k, w=wk, c=self.cfg.speed_of_sound)
 

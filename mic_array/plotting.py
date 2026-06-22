@@ -90,6 +90,51 @@ def plot_scene(mic_xyz, src_xyz, left_xyz, right_xyz) -> None:
     plt.show()
 
 
+def plot_scene_2d(mic_xyz, src_xyz, left_xyz, right_xyz, target_xyz=None) -> None:
+    """Top-down (x/y plane) view of the simulation scene."""
+    fig, ax = plt.subplots()
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_title("Microphone Array Scene — Top-down (X/Y)")
+    ax.set_aspect("equal")
+
+    if mic_xyz:
+        xs, ys, _ = zip(*mic_xyz)
+        ax.scatter(xs, ys, s=40, c="steelblue", marker="o", label="Microphones", zorder=3)
+
+    if src_xyz:
+        xs, ys, _ = zip(*src_xyz)
+        ax.scatter(xs, ys, s=80, c="darkorange", marker="^", label="Sound Sources", zorder=3)
+
+    if target_xyz:
+        for i, (x, y, _) in enumerate(target_xyz):
+            ax.annotate("", xy=(x, y), xytext=(0, 0),
+                        arrowprops=dict(arrowstyle="->", color="crimson", lw=1.5),
+                        zorder=5)
+        # Line handle so the legend entry looks like a line/arrow.
+        ax.plot([], [], color="crimson", lw=1.5, label="Targets")
+
+    if left_xyz:
+        ax.scatter([left_xyz[0]], [left_xyz[1]], s=80, c="red", marker="s", label="left_ear", zorder=3)
+    if right_xyz:
+        ax.scatter([right_xyz[0]], [right_xyz[1]], s=80, c="green", marker="s", label="right_ear", zorder=3)
+
+    # Equal axis limits with padding.
+    pts = _collect_points(mic_xyz, src_xyz, left_xyz, right_xyz)
+    if pts.size:
+        mins, maxs = pts[:, :2].min(axis=0), pts[:, :2].max(axis=0)
+        center = (mins + maxs) / 2.0
+        radius = max((maxs - mins).max() / 2.0, 1e-3) * 1.1
+        ax.set_xlim(center[0] - radius, center[0] + radius)
+        ax.set_ylim(center[1] - radius, center[1] + radius)
+
+    ax.axhline(0, color="gray", lw=0.5, ls="--")
+    ax.axvline(0, color="gray", lw=0.5, ls="--")
+    ax.legend(loc="best")
+    plt.tight_layout()
+    plt.show()
+
+
 # ---- Source-direction plotting ----
 
 Coord3 = Tuple[float, float, float]

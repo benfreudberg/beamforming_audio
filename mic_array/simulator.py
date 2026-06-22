@@ -461,13 +461,22 @@ class MicrophoneArraySimulation:
             for mic in self._microphones:
                 mic.track = np.zeros(0, dtype=np.float32)
 
-    def export_ears_stereo(self, filename: str = "ears_stereo.wav") -> None:
-        """Export the two internal ears as a stereo WAV (float32, 48 kHz) to output/."""
+    def export_ears_stereo(self, filename: str = "ears_stereo.wav", gain: float = 1.0) -> None:
+        """Export the two internal ears as a stereo WAV (float32) to output/.
+
+        Parameters
+        ----------
+        filename : str
+            Output filename inside the output directory.
+        gain : float
+            Linear amplitude scale applied before writing. Values > 1 make the
+            output louder; use with care to avoid clipping.
+        """
         if not isinstance(filename, str):
             raise TypeError("filename must be a string.")
 
-        left = self.left_ear.track.astype(np.float32)
-        right = self.right_ear.track.astype(np.float32)
+        left = self.left_ear.track.astype(np.float32) * gain
+        right = self.right_ear.track.astype(np.float32) * gain
         max_len = max(len(left), len(right))
         if len(left) < max_len:
             left = np.pad(left, (0, max_len - len(left)))
@@ -1019,6 +1028,16 @@ class MicrophoneArraySimulation:
         left_xyz = (self.left_ear.x, self.left_ear.y, self.left_ear.z)
         right_xyz = (self.right_ear.x, self.right_ear.y, self.right_ear.z)
         plot_scene(mic_xyz, src_xyz, left_xyz, right_xyz)
+
+    def show_scene_2d(self) -> None:
+        """Display a top-down (x/y plane) view of microphones, sources, and ears."""
+        from .plotting import plot_scene_2d
+        mic_xyz = [(mic.x, mic.y, mic.z) for mic in self._microphones]
+        src_xyz = [(s.x, s.y, s.z) for s in self._sources]
+        target_xyz = [(t.x, t.y, t.z) for t in self._targets]
+        left_xyz = (self.left_ear.x, self.left_ear.y, self.left_ear.z)
+        right_xyz = (self.right_ear.x, self.right_ear.y, self.right_ear.z)
+        plot_scene_2d(mic_xyz, src_xyz, left_xyz, right_xyz, target_xyz=target_xyz)
 
     def __repr__(self) -> str:
         return (f"MicrophoneArraySimulation("
